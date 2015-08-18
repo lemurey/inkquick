@@ -24,26 +24,71 @@ import Queue
 
 import threading
 
+from bs4 import BeautifulSoup
 
-def get_image_from_url(url):
+import requests
+
+from nolearn.lasagne import BatchIterator
+
+def get_insta_url(url):
+    '''
+    function to convert instagram short urls to links to the raw jpg image
+    '''
+
+    z = requests.get(url)
+    soup = BeautifulSoup(z.content,'html5lib')
+    try:
+        string = str(soup.findAll(attrs={'property':'og:image'})[0])
+    except:
+        string = '<meta content="property was not there"'
+    out = string.split('<meta content="')[1].split('"')[0]
+    temp = out.split('/')
+    #remove taken by tag if it is there
+    if temp[-1][0] == '?':
+        del temp[-1]
+    #convert from to 320X320 image size url (unless it already is)
+    if '/s320x320/' not in temp:
+        out = '/'.join(temp[:-1]) + '/s320x320/' + temp[-1]
+    else:
+        out = '/'.join(temp)
+    return out
+
+
+def float32(k):
+    '''
+    helper function to recast numpy arrays as type float32
+    float32 is needed for input to theano based neural nets
+    '''
+    return np.cast['float32'](k)
+
+def get_image_from_url(url,resize=None,swap=False):
     '''
     Download am image from a provided url, and convert it to a numpy
     array that can be manipulated
+    resize and swap values can be passed to do inplace resizing and swapping
+    of axes for input to neural nets
     This has to be outside the class due to problem with multiprocessing
     not being able to pickle instance methods
     '''
     ext = url.split('.')[-1]
     f_url = StringIO(urllib2.urlopen(url).read())
     im = plt.imread(f_url,ext)
+    if resize:
+        im = skimage.transform.resize(im, (resize,resize),)
+    if swap:
+        im = np.swapaxes(np.swapaxes(im, 1, 2), 0, 1)
+    return float32(im)
 
-    return im
+
+
 
 class LoadData(object):
 
 
     def __init__(self,verbose = True):
-        self.image_url = 'http://isthisapictureofatattoo.herokuapp.com/filtered_images/'
-        self.all_images = 'http://isthisapictureofatattoo.herokuapp.com/whole_db'
+        # set these to be urls to image database
+        self.image_url = 'url_for_images_db'
+        self.all_images = 'url_for_other_image_db'
         self.verbose = verbose
 
     def resize_image(self,im,size):
@@ -83,8 +128,7 @@ class LoadData(object):
         downloads an equal number of images coded as yes tattoo and no
         tattoo from the heroku app that hosts my image coding routine
         note that num_images is the number of yes images returned, so you
-        actually get 2 * num_images results, if save_url is True it saves
-        the urls and the codes as X.pkl and y.pkl
+        actually get 2 * num_images results
         '''
 
         if all_images:
@@ -113,6 +157,9 @@ class LoadData(object):
         return results
 
     def parse_download_all(self,results,raw):
+        '''
+        function to parse data from the entire photo database
+        '''
         i = 0
         for line in raw.content.split('\n'):
             if '<p>' in line:
@@ -186,6 +233,29 @@ class LoadData(object):
         if display:
             print 'Downlading images took {:.3f}s'.format(time.time() - s_t)
 
+        return out
+
+    def load_from_directory(self,start_dir):
+        '''
+        load data from a directory where either all the images you want are
+        in that directory or in in subdirectories,returns a list of tuples with 
+        each directory and the images in that directory
+        '''
+
+        out = []
+        for cur,subs,cur_files in os.walk(start_dir):
+            images = []
+            if cur == start_dir:
+                continue
+            for f in cur_files:
+                get_path = os.path.join(cur,f)
+                im = plt.imread(get_path)
+                im = np.swapaxes(np.swapaxes(im, 1, 2), 0, 1)
+                im = np.cast['float32'](im / 255)
+                images.append(im)
+            out.append((cur,images))
+
+        
         return out
 
     def get_new_data(self,
@@ -262,6 +332,8 @@ class LoadData(object):
             temp_images = [None] * len(images)
             for i,image in enumerate(images):
                     temp_images[i] = self.center_crop_image(image,crop_size)
+            # keeps the cropped and original image, allowing for double training
+            # on the center of images (kind of)
             if keep_crop_and_orig:
                 images.extend(temp_images)
                 labels.extend(labels)
@@ -303,41 +375,122 @@ class LoadData(object):
 
         return images,labels
 
+def update_nums(in_str):
+    '''
+    much more detailed version of file name updating
+    '''
+    parts = in_str.split('.')
 
-class ChunkLoadData(LoadData):
+    end = parts[-1]
 
-    def __init__(self):      
-        pass
+    beginning ='.'.join(parts[:-1])
 
-    def threaded_generator(self, generator, queue):
+    if len(parts) == 1:
+        beginning = end
+
+    num_digits = 0
+    end_num = ''
+
+    for char in beginning[::-1]:
+        if char.isdigit():
+            num_digits += 1
+            end_num += char
+
+    prep_val = '{' + '0:0{}d'.format(num_digits) + '}'
+
+    if len(end_num) == 0:
+        new_num = 1
+        num_digits = -len(beginning)
+        new_identifier = '_'
+    else:
+        new_num  = int(end_num[::-1]) + 1
+        new_identifier = ''
+
+    new_identifier += prep_val.format(new_num)
     
-        sentinel = object()  # guaranteed unique reference
 
-        # define producer (putting items into queue)
-        def producer():
-            for item in generator:
-                queue.put(item)
-            queue.put(sentinel)
+    if len(parts) == 1:
+        out = beginning + new_identifier
+    else:
+        out = beginning[:-num_digits] + new_identifier + '.' + end
 
-        # start producer (in a background thread)
-        
-        thread = threading.Thread(target=producer)
-        thread.daemon = True
-        thread.start()
+    return out
 
-        # run as consumer (read items from queue, in current thread)
-        item = queue.get()
-        while item is not sentinel:
-            yield item
-            queue.task_done()
-            item = queue.get()
+class SaveBestAccScores(object):
 
+    def __init__(self, name):
+        self.best = 0
+        self.name = name
+        self.file_num = None #len(str())
 
+    def __call__(self, nn, train_history):
+        '''
+        check if current epochs accuracy score is better than previous 
+        epochs, if it is, save the nn for the current epoch
+        '''
+        if self.file_num is None:
+            digits = len(str(nn.max_epochs))
+            file_num = '0:0{}d'.format(digits)
+            self.file_num = '{' + file_num + '}'
 
+        acc_score = train_history[-1]['valid_accuracy']
+        if acc_score > self.best:
+            self.best = acc_score
+            file_string = self.file_num.format(train_history[-1]['epoch'])
+            file_name = self.name + '_' + file_string +'.pkl'
+            with open(file_name,'wb') as f:
+                pickle.dump(nn,f)
+
+class AdjustVariable(object):
+    def __init__(self, name, start=0.03, stop=0.001):
+        self.name = name
+        self.start, self.stop = start, stop
+        self.ls = None
+
+    def __call__(self, nn, train_history):
+        '''
+        code mostly taken from DNouri: https://github.com/dnouri/nolearn
+        used to update learning paramaters during training 
+        '''
+        if self.ls is None:
+            self.ls = np.linspace(self.start, self.stop, nn.max_epochs)
+
+        epoch = train_history[-1]['epoch']
+        new_value = float32(self.ls[epoch - 1])
+        getattr(nn, self.name).set_value(new_value)
+
+class FlipBatchIterator(BatchIterator):
+    def __init__(self, batch_size):
+        self.batch_size = batch_size
+
+    def transform(self, Xb, yb):
+        '''
+        code adapted from DNouri:https://github.com/dnouri/nolearn
+        used to flip images during training to expand dataset
+        does x and y axes flips along with 90 and 270 degree rotations
+        '''
+        # Flip half of the images in this batch at random:
+        bs = Xb.shape[0]
+        indices = np.random.choice(bs, bs / 2, replace=False)
+        indices2 = np.random.choice(bs, bs / 2, replace=False)
+        indices3 = np.random.choice(bs, bs / 2, replace=False)
+        indices4 = np.random.choice(bs, bs / 2, replace=False)
+
+        flipped = np.swapaxes(Xb[:,:,:,:],2,3)
+        left = flipped[:,:,::-1,:]
+        right = flipped[:,:,::-1,::-1]
+
+        # comment any of the below lines to remove flipping of those 
+        # axes/directions
+        Xb[indices]  = Xb[indices, :, :, ::-1]
+        Xb[indices2] = Xb[indices2, :, ::-1, :]
+        Xb[indices3] = left[indices3, :, :, :]
+        Xb[indices4] = right[indices4, :, :, :]
+
+        return Xb,yb
 
 if __name__ == '__main__':
     
-    for cur,subs,files in os.walk('~/')
 
 
     ld = LoadData()
@@ -345,48 +498,6 @@ if __name__ == '__main__':
     print len(all_urls)
     print all_urls[-1]
 
-    # p_image = ld.get_new_data(num_images = 5,
-    #                           im_size = 80,
-    #                           crop_size = 160,
-    #                           keep_crop_and_orig = True,
-    #                           save_results = True,
-    #                           save_sub_results = False,
-    #                           file_name = 'testing_class.pkl.gz',
-    #                           sub_names = ['testing_classX.pkl.gz',
-    #                                        'testing_classY.pkl.gz',
-    #                                        'testing_raw.pkl.gz'],
-    #                           overwrite_saves = True,
-    #                           load_from_previous = True,
-    #                           previous_images = 'testing_raw.pkl.gz',
-    #                           previous_labels = 'testing_classY.pkl.gz')
-
-    # p_image2 = ld.get_new_data(num_images = 5,
-    #                           im_size = 80,
-    #                           crop_size = 160,
-    #                           keep_crop_and_orig = True,
-    #                           save_results = True,
-    #                           save_sub_results = True,
-    #                           file_name = 'testing_class.pkl.gz',
-    #                           sub_names = ['testing_classX.pkl.gz',
-    #                                        'testing_classY.pkl.gz',
-    #                                        'testing_raw.pkl.gz'],
-    #                           overwrite_saves = True)
-    
-    # test_image = np.swapaxes(np.swapaxes(p_image[0][0], 0, 1), 1, 2)
-    # plt.imshow(test_image)
-    # plt.show()
-
-    # test = ld.load_from_file('testing_raw.pkl.gz')
-
-    # plt.imshow(test[0])
-    # plt.show()
-
-    # test2 = ld.load_from_file('testing_class.pkl.gz')
-
-    # print np.any(np.equal(p_image[0],test2[0]))
-    # #print np.any(np.equal(p_image[1],test2[1]))
-    # print test2[1]
-    # print p_image[1]
 
 
 
