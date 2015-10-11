@@ -19,24 +19,8 @@ def run_model(df,nn,im):
 
     df['distance'] = df['features'].apply(pd_cosine)
 
-    #best = df.groupby('name')['distance'].min()
     out = df.groupby('name').mean().sort('distance')
 
-
-
-    # vals = df.groupby('name').apply(lambda x: x.iloc[x.distance.idxmin()])
-    # print vals
-
-    # print 'calculating distance took {} seconds'.format(time() - s_t)
-    best = []
-    # top_ids = out['id'][:5].values
-
-    # shortest_distance = best[best['id'].isin(top_ids)].distance
-
-    # print shortest_distance
-
-    # f_names = []
-
-    return (out,best)
+    return out
 
 

@@ -500,3 +500,7 @@ app/Untitled.ipynb
 app/*.pyc
 *.pyc
 app/*.db
+app/config.py
+*.pkl
+*.db
+download_all_images.py

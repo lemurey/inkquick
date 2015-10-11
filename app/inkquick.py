@@ -26,16 +26,24 @@ app = Flask(__name__)
 app.config.from_object('config')
 
 with open('featurize_net.pkl','rb') as f:
-    net = pickle.load(f)
+    net = pickle.load(f) #<- load neural net for featurizing input images
 
-df = pd.read_pickle('df_filtered_in_sf2.pkl')
+# load in data frame of SF tattoo artists with featurized image vectors
+df = pd.read_pickle('df_filtered_in_sf.pkl')
 
 def get_results(url,df=df,nn=net):
+    '''
+    loads the image from the user submitted url, and then run the image through 
+    the model
+    '''
     image = get_image_from_url(url,resize=120,swap=True).reshape(-1,3,120,120)
     return run_model(df,nn,image)
 
 @app.route('/',methods = ['GET','POST'])
 def home():
+    '''
+    load homepage, redirect for results page if they have submitted a url
+    '''
     form = ImageForm()
     if request.method == 'POST':
         url=form.image_url.data
@@ -45,16 +53,18 @@ def home():
 
 @app.route('/results')
 def results():
-    
+    '''
+    get the submitted url from session, grab and featurize the image and 
+    return the closest matches
+    '''
     url = session['url']
     temp = url.split('/')
     if temp[2] == 'instagram.com':
         url = get_insta_url(url)
     print 'you submitted {} for image analysis'.format(url)
-    results,best = get_results(url)
-    # print best
+    results = get_results(url).index[:10].values
 
-    results = results.index[:5].values
+    #results = results.index[:5].values
 
     return render_template('results.html',results=results,image=url)
 
