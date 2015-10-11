@@ -495,3 +495,8 @@
 986878242/
 991408880/
 998383677/
+app/.ipynb_checkpoints/
+app/Untitled.ipynb
+app/*.pyc
+*.pyc
+app/*.db
