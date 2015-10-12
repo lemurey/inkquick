@@ -1,4 +1,4 @@
-from utilities import get_image_from_url,get_insta_url
+from app_utilities import get_image_from_url,get_insta_url
 
 from flask import Flask 
 from flask import (request,
