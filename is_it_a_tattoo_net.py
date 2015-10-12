@@ -4,8 +4,6 @@ from utilities import (LoadData,
                        AdjustVariable,
                        FlipBatchIterator,)
 
-
-
 import numpy as np
 
 import cPickle as pickle
@@ -31,7 +29,7 @@ from lasagne.layers.dnn import Pool2DDNNLayer as PoolLayer
 
 from nolearn.lasagne import NeuralNet, BatchIterator
 
-sys.setrecursionlimit(10000)
+sys.setrecursionlimit(10000) #<- neccesary for pickling neural net files
 
 update_file_names = LoadData.update_file_names
 

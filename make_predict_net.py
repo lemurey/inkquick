@@ -4,8 +4,6 @@ import cPickle as pickle
 
 import theano
 
-
-
 from lasagne import layers
 from lasagne.updates import sgd
 from lasagne.nonlinearities import rectify
