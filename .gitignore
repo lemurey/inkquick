@@ -7,3 +7,4 @@ app/*.db
 app/config.py
 *.pkl
 *.db
+*.gz
